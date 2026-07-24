@@ -1,8 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { ChatMessage, ToolCallInfo, UploadedFile } from "./types";
-import { checkHealth, sendMessageAGUI } from "./api";
+import type { ChatMessage, Conversation, ToolCallInfo, UploadedFile } from "./types";
+import {
+  checkHealth,
+  sendMessageAGUI,
+  listConversations,
+  getConversation,
+  deleteConversation,
+  updateConversationTitle,
+} from "./api";
 import ChatMessageComponent from "./components/ChatMessage";
 import ChatInput from "./components/ChatInput";
+import ConversationSidebar from "./components/ConversationSidebar";
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
@@ -20,6 +28,7 @@ const AGUIEventType = {
   TOOL_CALL_ARGS: "TOOL_CALL_ARGS",
   TOOL_CALL_END: "TOOL_CALL_END",
   TOOL_CALL_RESULT: "TOOL_CALL_RESULT",
+  CONVERSATION_CREATED: "CONVERSATION_CREATED",
 } as const;
 
 interface AGUIEvent {
@@ -30,6 +39,7 @@ interface AGUIEvent {
   toolCallId?: string;
   toolCallName?: string;
   content?: string;
+  conversationId?: string;
   [key: string]: unknown;
 }
 
@@ -82,16 +92,23 @@ async function parseAGUIStream(
   }
 }
 
+/** 初始欢迎消息 */
+const WELCOME_MESSAGE: ChatMessage = {
+  id: "init",
+  role: "agent",
+  content: "你好！我是基于 AgentScope 2.x 的 AI 助手（AG-UI 协议），请输入消息开始对话 👇",
+};
+
 export default function App() {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "init",
-      role: "agent",
-      content: "你好！我是基于 AgentScope 2.x 的 AI 助手（AG-UI 协议），请输入消息开始对话 👇",
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE]);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [sending, setSending] = useState(false);
+
+  // ---- 会话管理状态 ----
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [sidebarLoading, setSidebarLoading] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const chatRef = useRef<HTMLDivElement>(null);
 
@@ -110,6 +127,87 @@ export default function App() {
       .then(() => setStatus("connected"))
       .catch(() => setStatus("disconnected"));
   }, []);
+
+  // 加载会话列表
+  const refreshConversations = useCallback(async () => {
+    setSidebarLoading(true);
+    try {
+      const list = await listConversations();
+      setConversations(list);
+    } catch (err) {
+      console.error("加载会话列表失败:", err);
+    } finally {
+      setSidebarLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshConversations();
+  }, [refreshConversations]);
+
+  // 切换到某个会话：加载历史消息
+  const handleSelectConversation = useCallback(
+    async (conversationId: string) => {
+      try {
+        const detail = await getConversation(conversationId);
+        setActiveConversationId(conversationId);
+
+        // 将后端消息转换为前端 ChatMessage 格式
+        const loadedMessages: ChatMessage[] = detail.messages.map((m) => ({
+          id: m.id,
+          role: m.role as ChatMessage["role"],
+          content: m.content,
+          toolCalls: m.tool_calls ?? undefined,
+        }));
+
+        if (loadedMessages.length === 0) {
+          setMessages([WELCOME_MESSAGE]);
+        } else {
+          setMessages(loadedMessages);
+        }
+      } catch (err) {
+        console.error("加载会话详情失败:", err);
+      }
+    },
+    [],
+  );
+
+  // 新建对话
+  const handleNewConversation = useCallback(() => {
+    setActiveConversationId(null);
+    setMessages([WELCOME_MESSAGE]);
+  }, []);
+
+  // 删除会话
+  const handleDeleteConversation = useCallback(
+    async (conversationId: string) => {
+      try {
+        await deleteConversation(conversationId);
+        // 如果删除的是当前会话，重置聊天区
+        if (conversationId === activeConversationId) {
+          setActiveConversationId(null);
+          setMessages([WELCOME_MESSAGE]);
+        }
+        refreshConversations();
+      } catch (err) {
+        console.error("删除会话失败:", err);
+      }
+    },
+    [activeConversationId, refreshConversations],
+  );
+
+  // 重命名会话
+  const handleRenameConversation = useCallback(
+    async (conversationId: string, title: string) => {
+      try {
+        await updateConversationTitle(conversationId, title);
+        refreshConversations();
+      } catch (err) {
+        console.error("重命名会话失败:", err);
+      }
+    },
+    [refreshConversations],
+  );
 
   const addMessage = useCallback((role: ChatMessage["role"], content: string) => {
     const msg: ChatMessage = {
@@ -189,12 +287,12 @@ export default function App() {
         setSending(false);
       }
     },
-    [addMessage, appendToMessage, updateToolCall],
+    [addMessage, appendToMessage, updateToolCall, activeConversationId],
   );
 
   // AG-UI 流式协议
   const handleAGUI = async (text: string) => {
-    const res = await sendMessageAGUI(text);
+    const res = await sendMessageAGUI(text, activeConversationId ?? undefined);
     if (!res.ok) {
       addMessage("error", `HTTP ${res.status}: ${res.statusText}`);
       return;
@@ -204,6 +302,14 @@ export default function App() {
 
     await parseAGUIStream(res, (event) => {
       switch (event.type) {
+        case AGUIEventType.CONVERSATION_CREATED:
+          // 后端自动创建了新会话，记录 conversationId
+          if (event.conversationId) {
+            setActiveConversationId(event.conversationId);
+            refreshConversations();
+          }
+          break;
+
         case AGUIEventType.TEXT_MESSAGE_START:
           // 创建空的 agent 消息，准备接收内容
           agentMsgId = addMessage("agent", "");
@@ -217,7 +323,8 @@ export default function App() {
           break;
 
         case AGUIEventType.TEXT_MESSAGE_END:
-          // 消息结束（可选：标记 streaming=false）
+          // 消息结束后刷新会话列表（更新 updated_at）
+          refreshConversations();
           break;
 
         case AGUIEventType.TOOL_CALL_START:
@@ -283,20 +390,43 @@ export default function App() {
   };
 
   return (
-    <div className="app">
-      <header>
-        <h1>🤖 AgentScope 2.x Chat (AG-UI)</h1>
-        <span className={`badge ${status}`}>{statusLabel[status]}</span>
-      </header>
+    <div className="app-container">
+      {/* 侧边栏 */}
+      {sidebarOpen && (
+        <ConversationSidebar
+          conversations={conversations}
+          activeId={activeConversationId}
+          onSelect={handleSelectConversation}
+          onDelete={handleDeleteConversation}
+          onRename={handleRenameConversation}
+          onNew={handleNewConversation}
+          loading={sidebarLoading}
+        />
+      )}
 
-      <div className="chat-area" ref={chatRef}>
-        {messages.map((msg) => (
-          <ChatMessageComponent key={msg.id} message={msg} />
-        ))}
-        {sending && <div className="typing">思考中…</div>}
+      {/* 主聊天区域 */}
+      <div className="app">
+        <header>
+          <button
+            className="sidebar-toggle-btn"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            title={sidebarOpen ? "收起侧边栏" : "展开侧边栏"}
+          >
+            {sidebarOpen ? "◀" : "▶"}
+          </button>
+          <h1>🤖 AgentScope 2.x Chat (AG-UI)</h1>
+          <span className={`badge ${status}`}>{statusLabel[status]}</span>
+        </header>
+
+        <div className="chat-area" ref={chatRef}>
+          {messages.map((msg) => (
+            <ChatMessageComponent key={msg.id} message={msg} />
+          ))}
+          {sending && <div className="typing">思考中…</div>}
+        </div>
+
+        <ChatInput disabled={sending} onSend={handleSend} />
       </div>
-
-      <ChatInput disabled={sending} onSend={handleSend} />
     </div>
   );
 }
