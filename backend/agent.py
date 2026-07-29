@@ -207,10 +207,10 @@ class SearchHandbook(ToolBase):
 
     name: str = "search_handbook"
     description: str = (
-        "检索《新生入学手册》的文档内容。"
-        "当用户询问与学校、入学、校园、报到、住宿、选课、军训、学费、"
-        "课程安排、校规、图书馆、食堂、社团等相关问题时，"
-        "必须使用此工具获取准确的文档信息后再回答。"
+         "检索知识库中的文档内容，包括《新生入学手册》和《员工绩效考核规章制度》。"
+    "当用户询问与学校、入学、校园、报到、住宿、选课、军训、学费、课程安排、"
+    "校规、图书馆、食堂、社团，或者与绩效、考核、评分、KPI、奖惩、晋升、"
+    "薪资、考勤等相关问题时，必须使用此工具获取准确的文档信息后再回答。"
     )
     input_schema: dict[str, Any] = {
         "type": "object",
@@ -302,7 +302,11 @@ class SearchHandbook(ToolBase):
                 content=[TextBlock(text="未找到与问题相关的文档内容。")],
             )
 
-        parts = [f"📋 从《新生入学手册》中检索到 {len(rows)} 条相关内容：\n"]
+        # parts = [f"📋 从《新生入学手册》中检索到 {len(rows)} 条相关内容：\n"]
+        sources = set(row[2] for row in rows if row[2])
+        source_label = "、".join(f"《{s}》" for s in sources) if sources else "知识库"
+        parts = [f"📋 从{source_label}中检索到 {len(rows)} 条相关内容：\n"]
+
         for idx, (row_id, content, source, similarity) in enumerate(rows, 1):
             sim_pct = f"{similarity * 100:.1f}%"
             parts.append(
@@ -357,7 +361,7 @@ def build_document_agent() -> Agent:
     return Agent(
         name="document_agent",
         system_prompt=(
-            "你是一个校园助手，专门回答与《新生入学手册》相关的问题。"
+            "你是一个智能文档助手，能够回答与《新生入学手册》和《员工绩效考核规章制度》相关的问题。"
             "你必须先使用 search_handbook 工具检索文档内容，"
             "然后根据检索到的内容准确回答。如果文档中没有相关信息，请如实告知。"
         ),

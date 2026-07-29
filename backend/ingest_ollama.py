@@ -97,7 +97,7 @@ def get_embedding(text: str) -> list[float]:
 
 def main():
     # ① 文本来源：换成你自己的 .docx 路径
-    docx_path = r"D:\code\ai_agent_demo\新生入学手册.docx"  # ← 改成你的文件路径
+    docx_path = r"D:\code\ai_agent_demo\员工绩效考核规章制度.docx"  # ← 改成你的文件路径
 
     print(f"📄 正在读取文档: {docx_path}")
     text = extract_text_from_docx(docx_path)
