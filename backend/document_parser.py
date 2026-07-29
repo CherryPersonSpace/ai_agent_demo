@@ -82,9 +82,65 @@ def extract_text_from_excel(file_path: str) -> str:
                 sheets_text.append(f"[工作表: {sheet.name}]\n" + "\n".join(rows))
         return "\n\n".join(sheets_text)
     else:
-        # .xlsx 用 openpyxl
-        import openpyxl
-        wb = openpyxl.load_workbook(file_path, data_only=True)
+        # .xlsx 用 openpyxl，失败则回退 xlrd（可能是旧格式 .xls 被重命名为 .xlsx）
+        import zipfile
+        try:
+            import openpyxl
+        except ImportError:
+            raise ValueError(
+                "缺少 openpyxl 库，无法解析 .xlsx 文件。"
+                "请在虚拟环境中执行: pip install openpyxl"
+            )
+
+        # 检查文件大小
+        file_size = os.path.getsize(file_path)
+        if file_size == 0:
+            raise ValueError(f"文件 '{Path(file_path).name}' 为空文件")
+
+        # 检查文件头（xlsx 是 zip 格式，头两个字节应为 PK）
+        with open(file_path, "rb") as f:
+            header = f.read(4)
+
+        if header[:2] != b"PK":
+            # 不是 zip 格式，可能是旧版 .xls 被重命名为 .xlsx
+            try:
+                import xlrd
+                wb_xls = xlrd.open_workbook(file_path)
+                sheets_text = []
+                for sheet in wb_xls.sheets():
+                    rows = []
+                    for row_idx in range(sheet.nrows):
+                        cells = [str(sheet.cell_value(row_idx, col)).strip()
+                                 for col in range(sheet.ncols)]
+                        row_text = " | ".join(cells)
+                        if row_text.strip(" |"):
+                            rows.append(row_text)
+                    if rows:
+                        sheets_text.append(f"[工作表: {sheet.name}]\n" + "\n".join(rows))
+                return "\n\n".join(sheets_text)
+            except Exception:
+                raise ValueError(
+                    f"文件 '{Path(file_path).name}' 不是有效的 Excel 文件"
+                    f"（文件头: {header[:4].hex()}，大小: {file_size} 字节）"
+                )
+
+        try:
+            wb = openpyxl.load_workbook(file_path, data_only=True)
+        except Exception as e:
+            err_type = type(e).__name__
+            err_msg = str(e)
+            # 列出 zip 内容以便诊断
+            zip_info = ""
+            try:
+                with zipfile.ZipFile(file_path, "r") as zf:
+                    zip_info = f"\nzip 内容: {zf.namelist()[:10]}"
+            except Exception:
+                zip_info = "\n（无法读取 zip 内容）"
+            raise ValueError(
+                f"解析 .xlsx 失败 [{err_type}]: {err_msg}"
+                f"{zip_info}\n文件: {Path(file_path).name}（{file_size} 字节，头: {header[:4].hex()}）"
+            )
+
         sheets_text = []
         for sheet in wb.worksheets:
             rows = []

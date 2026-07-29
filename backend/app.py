@@ -311,12 +311,15 @@ async def upload_file(file: UploadFile = File(...)):
         )
 
     # 保存到临时文件（保留原始后缀以便解析器识别格式）
+    # 注意: 不能用 NamedTemporaryFile 的 with 块，因为在 Windows 上
+    # 即使 with 结束，文件句柄仍可能被锁定，导致 openpyxl/zipfile 无法读取。
     suffix = ext
+    tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            content_bytes = await file.read()
+        content_bytes = await file.read()
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+        with os.fdopen(tmp_fd, "wb") as tmp:
             tmp.write(content_bytes)
-            tmp_path = tmp.name
 
         # 调用解析器提取文本（同步阻塞操作，放到线程池执行）
         text = await asyncio.to_thread(extract_document, tmp_path)
@@ -327,8 +330,11 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"文档解析失败: {e}")
     finally:
         # 清理临时文件
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except PermissionError:
+                pass  # Windows 下文件可能仍被占用，忽略即可
 
     return {
         "filename": file.filename,
