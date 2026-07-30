@@ -221,8 +221,8 @@ class SearchHandbook(ToolBase):
             },
             "top_k": {
                 "type": "integer",
-                "description": "返回最相关的文档片段数量，默认为 3",
-                "default": 3,
+                "description": "返回最相关的文档片段数量，默认为 1",
+                "default": 1,
             },
         },
         "required": ["query"],
@@ -256,7 +256,7 @@ class SearchHandbook(ToolBase):
         resp = ollama.embeddings(model=self._EMBED_MODEL, prompt=text)
         return resp["embedding"]
 
-    async def call(self, query: str, top_k: int = 3, **kwargs: Any) -> ToolChunk:
+    async def call(self, query: str, top_k: int = 1, **kwargs: Any) -> ToolChunk:
         """执行 RAG 向量检索，返回与 query 最相关的文档片段。"""
         # 1) 生成查询向量
         try:

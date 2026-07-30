@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Markdown } from "@agentscope-ai/chat"
 import type { ChatMessage, ToolCallInfo } from "../types";
 
@@ -6,16 +7,22 @@ interface Props {
 }
 
 function ToolCallCard({ tool }: { tool: ToolCallInfo }) {
+  const [expanded, setExpanded] = useState(false);
+
   return (
     <div className={`tool-call ${tool.status}`}>
-      <div className="tool-call-header">
+      <div
+        className="tool-call-header clickable"
+        onClick={() => setExpanded((prev) => !prev)}
+      >
+        <span className={`tool-chevron ${expanded ? "expanded" : ""}`}>▶</span>
         <span className="tool-icon">🔧</span>
         <span className="tool-name">{tool.name}</span>
         <span className={`tool-status ${tool.status}`}>
           {tool.status === "calling" ? "⏳ 调用中..." : "✅ 完成"}
         </span>
       </div>
-      {tool.result && (
+      {expanded && tool.result && (
         <div className="tool-call-result">
           <pre>{tool.result}</pre>
         </div>
