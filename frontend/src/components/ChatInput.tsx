@@ -2,7 +2,7 @@ import { useState, useRef, type KeyboardEvent, type ChangeEvent } from "react";
 import { uploadFile } from "../api";
 import type { UploadedFile } from "../types";
 
-const ACCEPTED_EXTENSIONS = ".txt,.docx,.xls,.xlsx,.pptx,.pdf";
+const ACCEPTED_EXTENSIONS = ".txt,.docx,.xls,.xlsx,.pptx,.pdf,.png,.jpg,.jpeg,.bmp,.tiff,.tif,.webp";
 
 interface Props {
   disabled: boolean;
@@ -81,7 +81,7 @@ export default function ChatInput({ disabled, onSend }: Props) {
         <button
           type="button"
           className="upload-btn"
-          title="上传文档 (txt/docx/xls/xlsx/pptx/pdf)"
+          title="上传文档或图片 (txt/docx/xls/xlsx/pptx/pdf/png/jpg/bmp)"
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled || uploading}
         >

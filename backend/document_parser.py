@@ -1,11 +1,19 @@
 """
 文档内容提取模块
-支持格式: .txt .docx .xls .xlsx .pptx .pdf
+支持格式: .txt .docx .xls .xlsx .pptx .pdf .png .jpg .jpeg .bmp .tiff .tif .webp
+图片文件通过 RapidOCR 进行文字识别（OCR）。
 """
 import os
+import io
 from pathlib import Path
 
-SUPPORTED_EXTENSIONS = {".txt", ".docx", ".xls", ".xlsx", ".pptx", ".pdf"}
+SUPPORTED_EXTENSIONS = {
+    ".txt", ".docx", ".xls", ".xlsx", ".pptx", ".pdf",
+    ".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".webp",
+}
+
+# 图片文件后缀集合（用于 OCR 识别）
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".webp"}
 
 
 # ────────────────────────────────────────────
@@ -185,7 +193,34 @@ def extract_text_from_pptx(file_path: str) -> str:
 
 
 # ────────────────────────────────────────────
-# 5. PDF
+# 5. 图片 OCR
+# ────────────────────────────────────────────
+def extract_text_from_image(file_path: str) -> str:
+    """使用 RapidOCR 从图片中提取文字内容。"""
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+    except ImportError:
+        raise ValueError(
+            "缺少 rapidocr_onnxruntime 库，无法识别图片中的文字。"
+            "请在虚拟环境中执行: pip install rapidocr_onnxruntime"
+        )
+
+    ocr = RapidOCR()
+    result, _ = ocr(file_path)
+
+    if not result:
+        raise ValueError(
+            f"图片 '{Path(file_path).name}' 中未识别到任何文字内容。"
+            "请确认图片清晰且包含可读文字。"
+        )
+
+    # result: List[List[Any]]，每个元素为 [bbox, text, confidence]
+    lines = [item[1] for item in result]
+    return "\n".join(lines)
+
+
+# ────────────────────────────────────────────
+# 6. PDF
 # ────────────────────────────────────────────
 def extract_text_from_pdf(file_path: str) -> str:
     """从 PDF 文件中提取各页的文本内容。"""
@@ -211,6 +246,13 @@ _EXTRACTORS = {
     ".xlsx": extract_text_from_excel,
     ".pptx": extract_text_from_pptx,
     ".pdf": extract_text_from_pdf,
+    ".png": extract_text_from_image,
+    ".jpg": extract_text_from_image,
+    ".jpeg": extract_text_from_image,
+    ".bmp": extract_text_from_image,
+    ".tiff": extract_text_from_image,
+    ".tif": extract_text_from_image,
+    ".webp": extract_text_from_image,
 }
 
 
